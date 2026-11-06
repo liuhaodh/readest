@@ -1,0 +1,138 @@
+# Builds the Apple targets on GitHub's macOS runners.
+#
+# This has to happen on macOS: iOS/macOS binaries need Xcode, the Apple SDKs and
+# codesign, none of which exist on the Windows machine this fork is developed on.
+#
+# Result: an unsigned .dmg for macOS (universal) and an unsigned .ipa for iOS.
+# The iOS package needs to be re-signed locally (Sideloadly / AltStore / Xcode
+# with a free Apple ID) because no Apple Developer certificate is configured.
+name: Build Apple
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS dmg (universal)
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: stage pdfjs / simplecc vendor assets
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-universal
+
+      # beforeBuildCommand still runs (next build + sourcemap strip); the Sentry
+      # upload inside it is a no-op without SENTRY_AUTH_TOKEN.
+      - name: build dmg
+        run: |
+          pnpm --filter readest-app tauri build \
+            --target universal-apple-darwin \
+            --bundles dmg \
+            --config src-tauri/tauri.macos-nonestore.conf.json
+
+      - name: upload dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS ipa (unsigned)
+    runs-on: macos-14
+    timeout-minutes: 90
+    # A signing-less IPA is a best-effort extra; keep the macOS job's result.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: stage pdfjs / simplecc vendor assets
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-arm64
+
+      - name: build ipa without signing
+        run: |
+          set -euo pipefail
+          if pnpm --filter readest-app tauri ios build --no-sign; then
+            echo "tauri ios build --no-sign succeeded"
+          else
+            echo "::warning::tauri ios build --no-sign failed, falling back to xcodebuild"
+            cd apps/readest-app/src-tauri/gen/apple
+            xcodebuild -list -project Readest.xcodeproj
+            xcodebuild \
+              -project Readest.xcodeproj \
+              -scheme Readest_iOS \
+              -configuration Release \
+              -sdk iphoneos \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+            mkdir -p Payload
+            cp -R build/Build/Products/Release-iphoneos/Readest.app Payload/
+            zip -qry build/Readest-unsigned.ipa Payload
+          fi
+
+      - name: collect ipa
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          find apps/readest-app/src-tauri/gen/apple -name '*.ipa' -print -exec cp {} artifacts/ \; || true
+          ls -lh artifacts
+
+      - name: upload ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: artifacts/*.ipa
+          if-no-files-found: warn
+          retention-days: 14
