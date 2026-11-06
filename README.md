@@ -1,3 +1,12 @@
+> **本仓库是以 WebDAV 同步为主的 Readest 分支。**
+>
+> 配置自己的 WebDAV 服务器后，无需注册或登录即可使用云同步、书架、阅读进度、笔记等原本需要付费账号的功能。
+> Android 安装包见 [Releases](https://github.com/liuhaodh/readest/releases/tag/v0.12.16-arm64) · 需要 WebDAV 服务可联系 **vOrvyn_silent**
+>
+> This fork is built around **WebDAV sync** — point it at your own WebDAV server and skip the hosted account entirely.
+
+---
+
 <div align="center">
   <a href="https://readest.com?utm_source=github&utm_medium=referral&utm_campaign=readme" target="_blank">
     <img src="https://github.com/readest/readest/blob/main/apps/readest-app/src-tauri/icons/icon.png?raw=true" alt="Readest Logo" width="20%" />
