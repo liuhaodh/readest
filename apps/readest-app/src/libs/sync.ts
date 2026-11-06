@@ -2,6 +2,8 @@ import { Book, BookConfig, BookNote, BookDataRecord } from '@/types/book';
 import { getAPIBaseUrl } from '@/services/environment';
 import { getAccessToken } from '@/utils/access';
 import { fetchWithTimeout } from '@/utils/fetch';
+import { isLocalAccountActive } from '@/services/localAccount/config';
+import { webdavLegacySyncClient } from '@/services/localAccount/legacySync';
 
 const SYNC_API_ENDPOINT = getAPIBaseUrl() + '/sync';
 
@@ -65,6 +67,12 @@ export class SyncClient {
     metaHash?: string,
     limit?: number,
   ): Promise<SyncResult> {
+    // Local (WebDAV) account: rows live in the user's own storage. Same pull
+    // contract (cursor in epoch ms, tombstones included), so callers such as
+    // the reading-statistics sync are provider-agnostic.
+    if (isLocalAccountActive()) {
+      return webdavLegacySyncClient.pullChanges(since, type, book, metaHash, limit);
+    }
     const token = await getAccessToken();
     if (!token) throw new Error('Not authenticated');
 
@@ -93,6 +101,7 @@ export class SyncClient {
    * Uses last-writer-wins logic as implemented on the server side.
    */
   async pushChanges(payload: SyncData): Promise<SyncResult> {
+    if (isLocalAccountActive()) return webdavLegacySyncClient.pushChanges(payload);
     const token = await getAccessToken();
     if (!token) throw new Error('Not authenticated');
 

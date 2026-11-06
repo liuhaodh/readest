@@ -77,6 +77,12 @@ export interface FileSyncProvider {
   ensureDir(paths: string[]): Promise<void>;
   /** Recursively delete a directory subtree. A missing dir is success. */
   deleteDir(path: string): Promise<void>;
+  /**
+   * Delete a single object. A missing object is success. Optional because the
+   * file-sync engine never needs it (it owns whole book subtrees), while the
+   * local-account storage layer deletes one object at a time.
+   */
+  deleteFile?(path: string): Promise<void>;
 
   /**
    * Optional streaming upload: PUT `localPath`'s bytes to `remotePath`

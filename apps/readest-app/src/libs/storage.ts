@@ -2,6 +2,15 @@ import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
+import { isLocalAccountActive } from '@/services/localAccount/config';
+import {
+  deleteLocalFile,
+  downloadLocalFile,
+  getLocalStorageStats,
+  listLocalFiles,
+  purgeLocalFiles,
+  uploadLocalFile,
+} from '@/services/localAccount/storage';
 import {
   tauriUpload,
   tauriDownload,
@@ -48,6 +57,16 @@ export const uploadFile = async (
   media?: string,
 ) => {
   try {
+    // Local (WebDAV) account: write straight to the user's server. The cloud
+    // path travels as the file name (see `uploadFileToCloud`), so the object
+    // lands at the same key the hosted backend would have used.
+    if (isLocalAccountActive()) {
+      await uploadLocalFile(file, fileFullPath, file.name, onProgress);
+      // `temp` / `media` uploads exist to mint a public URL; a WebDAV account
+      // has none, and the callers that want one (share images, rich presence)
+      // need the hosted service anyway.
+      return undefined;
+    }
     const response = await fetchWithAuth(API_ENDPOINTS.upload, {
       method: 'POST',
       headers: {
@@ -93,6 +112,10 @@ export const uploadReplicaFile = async (
   onProgress?: ProgressHandler,
 ) => {
   try {
+    if (isLocalAccountActive()) {
+      await uploadLocalFile(file, fileFullPath, cfp, onProgress);
+      return;
+    }
     const response = await fetchWithAuth(API_ENDPOINTS.upload, {
       method: 'POST',
       headers: {
@@ -122,6 +145,12 @@ export const uploadReplicaFile = async (
 
 export const batchGetDownloadUrls = async (files: { lfp: string; cfp: string }[]) => {
   try {
+    // A WebDAV account needs no signed URL: `downloadFile` authenticates with
+    // the stored credentials. Hand back a truthy placeholder so callers that
+    // skip files without a URL (cover downloads) still proceed.
+    if (isLocalAccountActive()) {
+      return files.map((file) => ({ lfp: file.lfp, cfp: file.cfp, downloadUrl: file.cfp }));
+    }
     const userId = await getUserID();
     if (!userId) {
       throw new Error('Not authenticated');
@@ -173,6 +202,12 @@ export const downloadFile = async ({
   onProgress,
 }: DownloadFileParams) => {
   try {
+    // Local (WebDAV) account: an empty `cfp` means an external URL (OPDS, ABS,
+    // share links) which keeps its normal path; anything with a cloud path is
+    // fetched from the user's server with Basic auth.
+    if (isLocalAccountActive() && cfp) {
+      return await downloadLocalFile({ appService, dst, cfp, onProgress });
+    }
     let downloadUrl = url;
     if (!downloadUrl) {
       const userId = await getUserID();
@@ -222,6 +257,10 @@ export const downloadFile = async ({
 
 export const deleteFile = async (filePath: string) => {
   try {
+    if (isLocalAccountActive()) {
+      await deleteLocalFile(filePath);
+      return;
+    }
     const userId = await getUserID();
     if (!userId) {
       throw new Error('Not authenticated');
@@ -254,6 +293,7 @@ export interface StorageStats {
 
 export const getStorageStats = async (): Promise<StorageStats> => {
   try {
+    if (isLocalAccountActive()) return await getLocalStorageStats();
     const response = await fetchWithAuth(API_ENDPOINTS.stats, {
       method: 'GET',
     });
@@ -294,6 +334,7 @@ interface ListFilesResponse {
 
 export const listFiles = async (params?: ListFilesParams): Promise<ListFilesResponse> => {
   try {
+    if (isLocalAccountActive()) return await listLocalFiles(params);
     const queryParams = new URLSearchParams();
 
     if (params?.page) queryParams.set('page', params.page.toString());
@@ -351,6 +392,7 @@ export const purgeFiles = async (
   isFileKeys = false,
 ): Promise<PurgeFilesResult> => {
   try {
+    if (isLocalAccountActive()) return await purgeLocalFiles(filePathsOrKeys, isFileKeys);
     let fileKeys: string[];
 
     if (isFileKeys) {

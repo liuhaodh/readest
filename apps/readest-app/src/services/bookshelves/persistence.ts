@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { getUserID } from '@/utils/access';
 import { getReplicaSync } from '@/services/sync/replicaSync';
 import { isSyncCategoryEnabled } from '@/services/sync/syncCategories';
+import { getLocalAccountId } from '@/services/localAccount/config';
 import { HlcGenerator } from '@/libs/crdt';
 import { LocalStorageHlcStore } from '@/libs/hlcStore';
 import { applyBookshelfDraft, mergeBookshelfStates, readBookshelves } from './state';
@@ -71,7 +72,9 @@ export const saveBookshelfDraft = async (
   // offline and mistake a failed refresh for an anonymous edit. The sync manager
   // still checks the authenticated account before publishing any queued row.
   const user = JSON.parse(localStorage.getItem('user') || '{}') as { id?: string };
-  const userId = user.id || '';
+  // Local (WebDAV) accounts carry no hosted user object; their id is derived
+  // from the connection and must match the one replica rows are stamped with.
+  const userId = user.id || getLocalAccountId() || '';
   const { settings } = useSettingsStore.getState();
   const deviceId = settings.replicaDeviceId || 'local';
   const hlcStore = new LocalStorageHlcStore();

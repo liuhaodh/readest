@@ -29,6 +29,7 @@ import {
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
 import { getTargetLang, isCJKEnv } from '@/utils/misc';
 import { safeLoadJSON, safeSaveJSON } from './persistence';
+import { getLocalAccountId, setLocalAccountWebDAV } from './localAccount/config';
 
 export interface Context {
   fs: FileSystem;
@@ -139,6 +140,9 @@ export async function loadSettings(ctx: Context): Promise<SystemSettings> {
     'Settings',
     defaultSettings,
   );
+  // Seed the local-account cache before anything else reads it: the cloud-sync
+  // gates run from non-React modules that cannot await this load.
+  setLocalAccountWebDAV(settings.webdav);
 
   const version = settings.version ?? 0;
   if (ctx.isAppDataSandbox || version < SYSTEM_SETTINGS_VERSION) {
@@ -178,8 +182,11 @@ export async function loadSettings(ctx: Context): Promise<SystemSettings> {
   // Recover this account's durable edits offline without refreshing its token.
   // Other accounts' edits stay in the journal until their owner signs in.
   const user = JSON.parse(localStorage.getItem('user') || '{}') as { id?: string };
+  // A local (WebDAV) account has no hosted user object; its id comes from the
+  // connection, and durable bookshelf edits are keyed on it.
+  const accountId = user.id ?? getLocalAccountId();
   for (const row of readPendingBookshelves()) {
-    if (row.user_id && row.user_id !== user.id) continue;
+    if (row.user_id && row.user_id !== accountId) continue;
     settings.bookshelves = mergeBookshelfStates(settings.bookshelves, {
       rows: { [row.replica_id]: row },
     });
@@ -231,6 +238,10 @@ export async function saveSettings(fs: FileSystem, settings: SystemSettings): Pr
         ? { ...next, bookshelves: mergeBookshelfStates(disk.bookshelves, next.bookshelves) }
         : next;
     await safeSaveJSON(fs, SETTINGS_FILENAME, 'Settings', merged);
+    // Keep the local-account cache in step with every settings write: the
+    // WebDAV connect flow persists through here, and the sync gates must see
+    // the new connection immediately, on every route.
+    setLocalAccountWebDAV(merged.webdav);
     if (pendingSettings === next) pendingSettings = null;
   };
   settingsWrites = settingsWrites.catch(() => {}).then(write);

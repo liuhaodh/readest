@@ -1,5 +1,7 @@
 import { getAccessToken } from '@/utils/access';
 import { getAPIBaseUrl } from '@/services/environment';
+import { isLocalAccountActive } from '@/services/localAccount/config';
+import { webdavReplicaClient } from '@/services/localAccount/replicaClient';
 import { SyncError } from '@/libs/errors';
 import type { Hlc, ReplicaRow } from '@/types/replica';
 import type { SyncErrorCode } from '@/libs/errors';
@@ -47,6 +49,9 @@ const requireToken = async (): Promise<string> => {
 export class ReplicaSyncClient {
   async push(rows: ReplicaRow[]): Promise<ReplicaRow[]> {
     if (rows.length === 0) return [];
+    // Local (WebDAV) account: the same CRDT contract is served from the user's
+    // own storage, so every caller above this line is provider-agnostic.
+    if (isLocalAccountActive()) return webdavReplicaClient.push(rows);
     const token = await requireToken();
     let response: Response;
     try {
@@ -73,6 +78,7 @@ export class ReplicaSyncClient {
   }
 
   async pull(kind: string, since: Hlc | null): Promise<ReplicaRow[]> {
+    if (isLocalAccountActive()) return webdavReplicaClient.pull(kind, since);
     const token = await requireToken();
     const params = new URLSearchParams({ kind });
     if (since) params.set('since', since);
@@ -113,6 +119,7 @@ export class ReplicaSyncClient {
     cursors: { kind: string; since: Hlc | null }[],
   ): Promise<{ kind: string; rows: ReplicaRow[] }[]> {
     if (cursors.length === 0) return [];
+    if (isLocalAccountActive()) return webdavReplicaClient.pullBatch(cursors);
     const token = await requireToken();
     let response: Response;
     try {
@@ -162,6 +169,7 @@ export class ReplicaSyncClient {
   invalidateReplicaKeysCache(): void {
     this.replicaKeysCache = null;
     this.replicaKeysInflight = null;
+    webdavReplicaClient.invalidateReplicaKeysCache();
   }
 
   private async fetchReplicaKeys(): Promise<ReplicaKeyRow[]> {
@@ -189,6 +197,7 @@ export class ReplicaSyncClient {
   }
 
   async listReplicaKeys(): Promise<ReplicaKeyRow[]> {
+    if (isLocalAccountActive()) return webdavReplicaClient.listReplicaKeys();
     if (this.replicaKeysCache !== null) {
       // Defensive copy — callers occasionally mutate the returned array
       // (e.g., `[...rows].sort(...)`). Returning the cache directly
@@ -212,6 +221,7 @@ export class ReplicaSyncClient {
   }
 
   async forgetReplicaKeys(): Promise<void> {
+    if (isLocalAccountActive()) return webdavReplicaClient.forgetReplicaKeys();
     const token = await requireToken();
     let response: Response;
     try {
@@ -237,6 +247,7 @@ export class ReplicaSyncClient {
   }
 
   async createReplicaKey(alg: string): Promise<ReplicaKeyRow> {
+    if (isLocalAccountActive()) return webdavReplicaClient.createReplicaKey(alg);
     const token = await requireToken();
     let response: Response;
     try {

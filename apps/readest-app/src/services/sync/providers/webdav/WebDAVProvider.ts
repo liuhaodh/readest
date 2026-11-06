@@ -14,6 +14,7 @@ import {
   buildBasicAuthHeader,
   buildRequestUrl,
   deleteDirectory,
+  deleteFile,
   ensureDirectory,
   getFile,
   getFileBinary,
@@ -95,6 +96,7 @@ export const createWebDAVProvider = (settings: WebDAVSettings): FileSyncProvider
       wrap(() => putFileBinary(config, path, body, contentType)),
     ensureDir: (paths) => wrap(() => ensureDirectory(config, paths)),
     deleteDir: (path) => wrap(() => deleteDirectory(config, path)),
+    deleteFile: (path) => wrap(() => deleteFile(config, path)),
   };
 
   if (isTauriAppPlatform()) {

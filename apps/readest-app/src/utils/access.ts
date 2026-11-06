@@ -9,6 +9,12 @@ import {
 import { isWebAppPlatform } from '@/services/environment';
 import { getDailyUsage } from '@/services/translators/dailyUsage';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
+import {
+  LOCAL_ACCOUNT_TOKEN,
+  getLocalAccountId,
+  isLocalAccountActive,
+  isLocalAccountToken,
+} from '@/services/localAccount/config';
 
 interface Token {
   plan: UserPlan;
@@ -18,13 +24,26 @@ interface Token {
   [key: string]: string | number | boolean;
 }
 
+/**
+ * Decode a JWT, or `null` for the local (WebDAV) account token, which is not a
+ * JWT at all. Callers that only need "who is this / what may they use" treat
+ * `null` as the fully-entitled local account — there is no store to buy from
+ * and the user owns the storage the features run on.
+ */
+const decodeToken = (token: string): Token | null => {
+  if (isLocalAccountToken(token)) return null;
+  return jwtDecode<Token>(token) || null;
+};
+
 export const getSubscriptionPlan = (token: string): UserPlan => {
-  const data = jwtDecode<Token>(token) || {};
+  const data = decodeToken(token);
+  if (!data) return 'pro';
   return data['plan'] || 'free';
 };
 
 export const getUserProfilePlan = (token: string): UserPlan => {
-  const data = jwtDecode<Token>(token) || {};
+  const data = decodeToken(token);
+  if (!data) return 'pro';
   let plan = data['plan'] || 'free';
   if (plan === 'free') {
     const purchasedQuota = data['storage_purchased_bytes'] || 0;
@@ -153,7 +172,8 @@ export const isNearbyPairingAllowed = (plan: UserPlan, customizationPurchased: b
  * before the claim existed, which reads as not purchased.
  */
 export const getCustomizationPurchased = (token: string): boolean => {
-  const data = jwtDecode<Token>(token) || {};
+  const data = decodeToken(token);
+  if (!data) return true;
   return data['customization_purchased'] === true;
 };
 
@@ -182,10 +202,15 @@ export const isSelfHosted = (): boolean =>
 
 /**
  * The single gate for premium features: a self-hosted deployment, a paid
- * subscription, or the Full Customization unlock bought outright.
+ * subscription, the Full Customization unlock bought outright, or a local
+ * (WebDAV) account. The local account is entitled by definition — its storage
+ * and backend belong to the user, and there is no store to buy from.
  */
 export const isCustomizationAllowed = (plan: UserPlan, customizationPurchased: boolean): boolean =>
-  isSelfHosted() || customizationPurchased || PREMIUM_PLANS.includes(plan);
+  isSelfHosted() ||
+  isLocalAccountActive() ||
+  customizationPurchased ||
+  PREMIUM_PLANS.includes(plan);
 
 /**
  * Custom translators (the user's own OpenAI-compatible LLM or DeepL key) are a
@@ -196,7 +221,7 @@ export const isCustomizationAllowed = (plan: UserPlan, customizationPurchased: b
 export const isCustomTranslatorAllowed = (token: string | null | undefined): boolean =>
   token
     ? isCustomizationAllowed(getUserProfilePlan(token), getCustomizationPurchased(token))
-    : isSelfHosted();
+    : isSelfHosted() || isLocalAccountActive();
 
 /**
  * Custom TTS services (the user's own OpenAI-compatible speech endpoint) are
@@ -208,7 +233,13 @@ export const isCustomTTSAllowed = isCustomTranslatorAllowed;
 export const STORAGE_QUOTA_GRACE_BYTES = 10 * 1024 * 1024; // 10 MB grace
 
 export const getStoragePlanData = (token: string) => {
-  const data = jwtDecode<Token>(token) || {};
+  const data = decodeToken(token);
+  if (!data) {
+    // The local account's storage is the user's own WebDAV quota, which no API
+    // reports. Show the entitled ceiling and let the storage panel's live
+    // listing speak for actual usage.
+    return { plan: 'pro' as UserPlan, usage: 0, quota: DEFAULT_STORAGE_QUOTA['pro'] };
+  }
   const plan = data['plan'] || 'free';
   const usage = data['storage_usage_bytes'] || 0;
   const purchasedQuota = data['storage_purchased_bytes'] || 0;
@@ -254,8 +285,8 @@ export const getTTSQuota = (plan: UserPlan): number => {
 };
 
 export const getTranslationPlanData = (token: string) => {
-  const data = jwtDecode<Token>(token) || {};
-  const plan: UserPlan = data['plan'] || 'free';
+  const data = decodeToken(token);
+  const plan: UserPlan = data ? data['plan'] || 'free' : 'pro';
   const usage = getDailyUsage() || 0;
   const quota = getTranslationQuota(plan);
 
@@ -267,8 +298,8 @@ export const getTranslationPlanData = (token: string) => {
 };
 
 export const getDailyTranslationPlanData = (token: string) => {
-  const data = jwtDecode<Token>(token) || {};
-  const plan = data['plan'] || 'free';
+  const data = decodeToken(token);
+  const plan = data ? data['plan'] || 'free' : 'pro';
   const quota = getTranslationQuota(plan);
 
   return {
@@ -278,6 +309,11 @@ export const getDailyTranslationPlanData = (token: string) => {
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  // A local (WebDAV) account has no hosted session, but every account-gated
+  // code path — replica pull, transfers, sync categories — asks for a token
+  // first. Handing out the local sentinel is what makes those paths run, and
+  // it is deliberately rejected by the hosted API so nothing leaks there.
+  if (isLocalAccountActive()) return LOCAL_ACCOUNT_TOKEN;
   // In browser context there might be two instances of supabase one in the app route
   // and the other in the pages route, and they might have different sessions
   // making the access token invalid for API calls. In that case we should use localStorage.
@@ -289,6 +325,7 @@ export const getAccessToken = async (): Promise<string | null> => {
 };
 
 export const getUserID = async (): Promise<string | null> => {
+  if (isLocalAccountActive()) return getLocalAccountId();
   if (isWebAppPlatform()) {
     const user = localStorage.getItem('user') ?? '{}';
     return JSON.parse(user).id ?? null;

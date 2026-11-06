@@ -114,7 +114,7 @@ const IntegrationsPanel: React.FC = () => {
   const _ = useTranslation();
   const router = useAppRouter();
   const { envConfig, appService } = useEnv();
-  const { user } = useAuth();
+  const { user, isLocalAccount } = useAuth();
   const { settings, requestedSubPage, setRequestedSubPage } = useSettingsStore();
   const opdsCatalogs = useCustomOPDSStore((s) => s.catalogs);
   const opdsCount = opdsCatalogs.filter((c) => !c.deletedAt).length;
@@ -166,6 +166,12 @@ const IntegrationsPanel: React.FC = () => {
   })
     ? _('Premium')
     : undefined;
+
+  // WebDAV doubles as the account backend for a signed-out device: connecting it
+  // is what turns account features on, so it must never be gated behind a plan
+  // the user cannot buy without signing in. Signed-in users keep the normal
+  // premium rule for every provider.
+  const webdavUnlocked = isCloudSyncPremium || !user;
 
   const [subPage, setSubPage] = useState<SubPage>(null);
 
@@ -221,7 +227,7 @@ const IntegrationsPanel: React.FC = () => {
       requestedSubPage === 'cloudsync';
     // Cloud-sync sub-pages are premium-gated. If the plan is still loading, wait
     // (don't consume the request); once known, only honor it for paid plans.
-    if (isCloudRequest && !isCloudSyncPremium) {
+    if (isCloudRequest && !isCloudSyncPremium && !(!user && requestedSubPage === 'webdav')) {
       if (userProfilePlan === undefined) return;
       setRequestedSubPage(null);
       return;
@@ -751,15 +757,15 @@ const IntegrationsPanel: React.FC = () => {
               icon={RiCloudLine}
               title={_('WebDAV')}
               status={webdavStatus}
-              badge={premiumBadge}
+              badge={webdavUnlocked ? undefined : premiumBadge}
               checked={!!settings.webdav?.enabled}
               canToggle={canToggleCloudProvider({
-                isPremium: isCloudSyncPremium,
+                isPremium: webdavUnlocked,
                 isConfigured: webdavConfigured,
                 isEnabled: !!settings.webdav?.enabled,
               })}
               onToggle={(next) => toggleCloudProvider('webdav', next)}
-              onOpen={() => (isCloudSyncPremium ? setSubPage('webdav') : navigateToProfile(router))}
+              onOpen={() => (webdavUnlocked ? setSubPage('webdav') : navigateToProfile(router))}
               toggleLabel={_('Sync with WebDAV')}
             />
             <CloudProviderRow
@@ -821,6 +827,17 @@ const IntegrationsPanel: React.FC = () => {
             )}
           </div>
         </div>
+        {isLocalAccount && (
+          <div className='mt-5'>
+            <Tips>
+              <li>
+                {_(
+                  'Your WebDAV server is the account for this device. Settings, collections, dictionaries, fonts and reading statistics sync there, so no Readest account is needed.',
+                )}
+              </li>
+            </Tips>
+          </div>
+        )}
         {providers.length === 0 && (
           <div className='mt-5'>
             <Tips>
