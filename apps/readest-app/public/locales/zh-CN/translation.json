@@ -2603,5 +2603,7 @@
   "Clear All": "全部清除",
   "Remove {{term}} from search history": "从搜索历史中移除{{term}}",
   "Remove from history": "从历史记录中移除",
-  "Lookup App": "查词应用"
+  "Lookup App": "查词应用",
+  "Use WebDAV to unlock paid features for free": "使用 WebDAV 免费解锁付费功能",
+  "Need a WebDAV server? Contact {{contact}}": "需要 WebDAV 服务请联系 {{contact}}"
 }

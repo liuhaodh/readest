@@ -257,6 +257,15 @@ export default function AuthPage() {
     }
   };
 
+  /**
+   * WebDAV is configured and switched on, so the account this screen exists to
+   * create is no longer needed. `replace` rather than `push`: going "back" into
+   * the sign-in screen after connecting would only be confusing.
+   */
+  const handleWebDAVConnected = () => {
+    router.replace('/library');
+  };
+
   useEffect(() => {
     if (!isTauriAppPlatform()) return;
     if (isOAuthServerRunning.current) return;
@@ -372,6 +381,7 @@ export default function AuthPage() {
             magicLink={true}
             redirectTo={getTauriRedirectTo(false)}
             onProviderSignIn={tauriProviderSignIn}
+            onWebDAVConnected={handleWebDAVConnected}
           />
         </div>
       </div>
@@ -390,6 +400,7 @@ export default function AuthPage() {
         magicLink={true}
         redirectTo={getWebRedirectTo()}
         onProviderSignIn={webProviderSignIn}
+        onWebDAVConnected={handleWebDAVConnected}
       />
     </div>
   );

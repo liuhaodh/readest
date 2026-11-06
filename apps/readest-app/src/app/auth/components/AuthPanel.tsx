@@ -7,12 +7,15 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { ProviderLogin, type OAuthProvider } from './ProviderLogin';
 import EmailPasswordAuth from './EmailPasswordAuth';
 import ReadestCloudOptIn from './ReadestCloudOptIn';
+import WebDAVUnlockEntry from './WebDAVUnlockEntry';
 
 interface AuthPanelProps {
   supabaseClient: SupabaseClient;
   redirectTo?: string;
   magicLink?: boolean;
   onProviderSignIn: (provider: OAuthProvider) => Promise<void>;
+  /** WebDAV configured without an account — the caller takes over navigation. */
+  onWebDAVConnected?: () => void;
 }
 
 export default function AuthPanel({
@@ -20,6 +23,7 @@ export default function AuthPanel({
   redirectTo,
   magicLink = false,
   onProviderSignIn,
+  onWebDAVConnected,
 }: AuthPanelProps) {
   const _ = useTranslation();
   // `signInWithOAuth` redirects the whole page on web, which can cut off the
@@ -83,6 +87,10 @@ export default function AuthPanel({
           pendingCloudChoice.current = write;
         }}
       />
+      <div className='flex w-full items-center gap-3' aria-hidden='true'>
+        <hr className='border-base-300 flex-1 border-t' />
+      </div>
+      <WebDAVUnlockEntry onConnected={onWebDAVConnected} />
     </div>
   );
 }

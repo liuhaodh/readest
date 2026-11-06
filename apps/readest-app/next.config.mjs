@@ -71,6 +71,10 @@ const nextConfig = {
     // `next start`, since Cloudflare and Vercel never reach this code path, so
     // the tighter budget is worth more there than the last 8MB of an upload.
     proxyClientMaxBodySize: standaloneOutput ? 1024 * 1024 * 1024 : 32 * 1024 * 1024,
+    // On Windows the static export can race two workers onto out/404.html
+    // (the pages-router 404 and the app-router not-found share that path),
+    // which fails with EPERM. NEXT_EXPORT_WORKERS=1 serialises the export.
+    ...(process.env['NEXT_EXPORT_WORKERS'] ? { cpus: Number(process.env['NEXT_EXPORT_WORKERS']) } : {}),
   },
   // Configure assetPrefix or else the server won't properly resolve your assets.
   assetPrefix: '',
